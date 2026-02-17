@@ -7,94 +7,20 @@ namespace App\Service;
 use App\DTO\CreateUserDTO;
 use App\DTO\UpdateUserDTO;
 use App\Entity\User;
-use App\Exception\ForbiddenException;
-use App\Exception\NotFoundException;
-use App\Exception\UnauthorizedException;
 use App\Exception\ValidationException;
 use App\Repository\UserRepository;
-use Doctrine\Common\Collections\ArrayCollection;
-use Doctrine\ORM\EntityManagerInterface;
+use App\Security\Voter\UserVoter;
 use Symfony\Bundle\SecurityBundle\Security;
+use Symfony\Component\Security\Core\Exception\AccessDeniedException;
 use Symfony\Component\Validator\Validator\ValidatorInterface;
-//use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
-//use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
-//use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
-//use Symfony\Component\HttpKernel\Exception\UnauthorizedHttpException;
-//use Symfony\Component\Validator\Validator\ValidatorInterface;
 
-
-class UserService
+final class UserService
 {
     public function __construct(
         private UserRepository $repository,
         private Security $security,
-        private ValidatorInterface $validator
+        private ValidatorInterface $validator,
     ) {}
-
-    // --------------------
-    // CONTEXT
-    // --------------------
-
-    public function getCurrentUserId(): ?int
-    {
-        $user = $this->security->getUser();
-
-        return match (true) {
-            $user === null => null,
-            $user->getUserIdentifier() === 'root' => null,
-            default => (int) $user->getUserIdentifier(),
-        };
-    }
-
-    public function getCurrentUserRole(): string
-    {
-        $user = $this->security->getUser();
-
-        return match (true) {
-            $user === null => 'anonymous',
-            $user->getUserIdentifier() === 'root' => 'root',
-            default => 'user',
-        };
-    }
-
-
-    // --------------------
-    // ACCESS CONTROL
-    // --------------------
-
-    public function assertCanView(int $targetUserId): void
-    {
-        $role = $this->getCurrentUserRole();
-        $currentId = $this->getCurrentUserId();
-
-        match ($role) {
-            'anonymous' => throw new UnauthorizedException(),
-            'root' => null,
-            'user' => $currentId === $targetUserId
-                ? null
-                : throw new ForbiddenException(),
-            default => throw new ForbiddenException(),
-        };
-    }
-
-
-    public function assertCanUpdate(int $targetUserId): void
-    {
-        // update = ті самі правила, що й view
-        $this->assertCanView($targetUserId);
-    }
-
-    public function assertCanDelete(int $targetUserId): void
-    {
-        $role = $this->getCurrentUserRole();
-
-        match ($role) {
-            'anonymous' => throw new UnauthorizedException(),
-            'root' => null,
-            'user' => throw new ForbiddenException(),
-            default => throw new ForbiddenException(),
-        };
-    }
 
     // --------------------
     // QUERIES
@@ -102,9 +28,13 @@ class UserService
 
     public function getUser(int $id): User
     {
-        $this->assertCanView($id);
+        $user = $this->repository->findOrFail($id);
 
-        return $this->repository->findOrFail($id);
+        if (!$this->security->isGranted(UserVoter::VIEW, $user)) {
+            throw new AccessDeniedException();
+        }
+
+        return $user;
     }
 
     // --------------------
@@ -115,7 +45,10 @@ class UserService
     {
         $this->validate($dto);
 
-        if ($this->repository->existsByLoginAndPass($dto->login, $dto->pass)) {
+        if ($this->repository->existsByLoginAndPass(
+            $dto->login,
+            $dto->pass
+        )) {
             throw new ValidationException(
                 'User already exists',
                 ['login' => ['User already exists']]
@@ -138,9 +71,11 @@ class UserService
     {
         $this->validate($dto);
 
-        $this->assertCanUpdate($dto->id);
-
         $user = $this->repository->findOrFail($dto->id);
+
+        if (!$this->security->isGranted(UserVoter::UPDATE, $user)) {
+            throw new AccessDeniedException();
+        }
 
         if ($this->repository->existsByLoginAndPass(
             $dto->login,
@@ -167,12 +102,18 @@ class UserService
 
     public function delete(int $id): void
     {
-        $this->assertCanDelete($id);
-
         $user = $this->repository->findOrFail($id);
+
+        if (!$this->security->isGranted(UserVoter::DELETE, $user)) {
+            throw new AccessDeniedException();
+        }
 
         $this->repository->remove($user);
     }
+
+    // --------------------
+    // VALIDATION
+    // --------------------
 
     private function validate(object $object): void
     {
@@ -183,4 +124,3 @@ class UserService
         }
     }
 }
-

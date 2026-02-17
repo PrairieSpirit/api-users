@@ -4,17 +4,19 @@ declare(strict_types=1);
 
 namespace App\EventSubscriber;
 
-use App\Exception\ApiException;
 use App\Exception\ApiErrorCode;
 use App\Exception\ApiErrorMessage;
+use App\Exception\ApiException;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\KernelEvents;
-use Symfony\Component\Security\Core\Exception\AuthenticationException;
 use Symfony\Component\Security\Core\Exception\AccessDeniedException;
+use Symfony\Component\Security\Core\Exception\AuthenticationException;
+
 
 final class ApiExceptionSubscriber implements EventSubscriberInterface
 {
@@ -45,7 +47,7 @@ final class ApiExceptionSubscriber implements EventSubscriberInterface
                 [],
             ],
 
-            $throwable instanceof AccessDeniedException => [
+            $throwable instanceof AccessDeniedHttpException => [
                 Response::HTTP_FORBIDDEN,
                 ApiErrorCode::FORBIDDEN->value,
                 ApiErrorMessage::FORBIDDEN,
@@ -62,12 +64,11 @@ final class ApiExceptionSubscriber implements EventSubscriberInterface
             default => [
                 Response::HTTP_INTERNAL_SERVER_ERROR,
                 ApiErrorCode::INTERNAL_ERROR->value,
-//                ApiErrorMessage::INTERNAL_ERROR, // Use for debug $throwable->getMessage(),
-                $throwable->getMessage(),
+                ApiErrorMessage::INTERNAL_ERROR, // Use for debug $throwable->getMessage(),
                 [],
             ],
-
         };
+
 
         $event->setResponse(
             $this->json($status, $error, $message, $errors)
